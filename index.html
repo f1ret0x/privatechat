@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple P2P Room Chat</title>
+    <!-- PeerJS Library for WebRTC signaling -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; max-width: 600px; margin: 30px auto; padding: 20px; }
+        .card { background: #1e293b; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
+        h2 { margin-top: 0; color: #38bdf8; }
+        #status { font-size: 0.9em; margin-bottom: 15px; color: #94a3b8; }
+        #chat-box { height: 300px; border: 1px solid #334155; border-radius: 8px; padding: 12px; overflow-y: auto; background: #0f172a; margin-bottom: 12px; display: none; }
+        .msg { margin-bottom: 8px; line-height: 1.4; word-wrap: break-word; }
+        .msg.me { color: #38bdf8; }
+        .msg.peer { color: #4ade80; }
+        .msg.sys { color: #64748b; font-style: italic; }
+        .input-group { display: flex; gap: 8px; margin-bottom: 10px; }
+        input[type="text"] { flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: white; outline: none; }
+        button { background: #0284c7; color: white; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #0369a1; }
+        button:disabled { background: #334155; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>P2P Room Chat</h2>
+        <div id="status">Enter a shared room name to start.</div>
+
+        <!-- Room Setup -->
+        <div id="setup-section" class="input-group">
+            <input type="text" id="room-input" placeholder="e.g. secret-hangout-123">
+            <button onclick="joinRoom()">Enter Room</button>
+        </div>
+
+        <!-- Chat Area -->
+        <div id="chat-box"></div>
+
+        <div id="message-section" class="input-group" style="display: none;">
+            <input type="text" id="message-input" placeholder="Type a message...">
+            <button id="send-btn" onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const chatBox = document.getElementById('chat-box');
+        const roomInput = document.getElementById('room-input');
+        const setupSection = document.getElementById('setup-section');
+        const messageSection = document.getElementById('message-section');
+        const msgInput = document.getElementById('message-input');
+
+        let peer = null;
+        let activeConn = null;
+
+        function joinRoom() {
+            const roomName = roomInput.value.trim().toLowerCase();
+            if (!roomName) {
+                alert("Please enter a room name!");
+                return;
+            }
+
+            statusEl.innerText = "Connecting to room...";
+            roomInput.disabled = true;
+            setupSection.querySelector('button').disabled = true;
+
+            const hostId = "p2p-chat-room-" + roomName;
+            peer = new Peer(hostId);
+
+            peer.on('open', () => {
+                statusEl.innerText = `Room "${roomName}" created. Waiting for peer to join...`;
+            });
+
+            peer.on('error', (err) => {
+                if (err.type === 'unavailable-id') {
+                    // Room already exists, join it as a guest
+                    peer.destroy();
+                    connectAsGuest(hostId);
+                } else {
+                    statusEl.innerText = "Error: " + err.type;
+                }
+            });
+
+            peer.on('connection', (conn) => {
+                activeConn = conn;
+                setupConnection();
+            });
+        }
+
+        function connectAsGuest(hostId) {
+            peer = new Peer();
+
+            peer.on('open', () => {
+                statusEl.innerText = "Joining room...";
+                activeConn = peer.connect(hostId);
+                setupConnection();
+            });
+
+            peer.on('error', (err) => {
+                statusEl.innerText = "Failed to join room: " + err.type;
+            });
+        }
+
+        function setupConnection() {
+            activeConn.on('open', () => {
+                statusEl.innerText = "Connected directly to peer (Encrypted P2P).";
+                setupSection.style.display = 'none';
+                chatBox.style.display = 'block';
+                messageSection.style.display = 'flex';
+                logMessage("Connected to the chat room!", "sys");
+            });
+
+            activeConn.on('data', (data) => {
+                logMessage("Peer: " + data, "peer");
+            });
+
+            activeConn.on('close', () => {
+                statusEl.innerText = "Peer disconnected.";
+                logMessage("Peer left the room.", "sys");
+                msgInput.disabled = true;
+            });
+        }
+
+        function sendMessage() {
+            const text = msgInput.value.trim();
+            if (text && activeConn && activeConn.open) {
+                activeConn.send(text);
+                logMessage("You: " + text, "me");
+                msgInput.value = "";
+            }
+        }
+
+        function logMessage(text, type) {
+            const el = document.createElement('div');
+            el.className = `msg ${type}`;
+            el.innerText = text;
+            chatBox.appendChild(el);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        msgInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") sendMessage();
+        });
+        
+        roomInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") joinRoom();
+        });
+    </script>
+</body>
+</html>
